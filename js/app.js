@@ -20,6 +20,30 @@ document.addEventListener('DOMContentLoaded', () => {
     setupVotingSection();
 });
 
+// Extract file ID from various Google Drive URL formats
+function extractFileId(url) {
+    if (!url) return null;
+    
+    // Format: https://drive.google.com/file/d/FILE_ID/view
+    if (url.includes('/d/')) {
+        return url.split('/d/')[1].split('/')[0];
+    }
+    // Format: https://drive.google.com/open?id=FILE_ID
+    if (url.includes('id=')) {
+        return url.split('id=')[1].split('&')[0];
+    }
+    return null;
+}
+
+// Convert Google Drive link to direct image URL
+function getGoogleDriveImageUrl(driveUrl) {
+    const fileId = extractFileId(driveUrl);
+    if (fileId) {
+        return `https://drive.google.com/uc?id=${fileId}&export=view`;
+    }
+    return driveUrl;
+}
+
 // Load photos from Google Sheets
 async function loadPhotos() {
     try {
@@ -27,19 +51,24 @@ async function loadPhotos() {
         const response = await fetch(url);
         const data = await response.json();
         
-        photos = data.map(row => ({
-            id: row['고유ID'] || Math.random().toString(36).substr(2, 9),
-            category: row['카테고리'] || '',
-            title: row['작품제목'] || '',
-            photographer: row['이름'] || '',
-            department: row['부서'] || '',
-            shotDate: row['촬영시기'] || '',
-            location: row['촬영장소'] || '',
-            description: row['한줄소개'] || '',
-            imageUrl: row['구글드라이브링크'] || '',
-            votes: parseInt(row['투표수']) || 0
-        })).filter(photo => photo.imageUrl); // Only include photos with image URLs
+        photos = data.map(row => {
+            const driveLink = row['구글드라이브링크'] || '';
+            return {
+                id: row['고유ID'] || Math.random().toString(36).substr(2, 9),
+                category: row['카테고리'] || '',
+                title: row['작품제목'] || '',
+                photographer: row['이름'] || '',
+                department: row['부서'] || '',
+                shotDate: row['촬영시기'] || '',
+                location: row['촬영장소'] || '',
+                description: row['한줄소개'] || '',
+                imageUrl: getGoogleDriveImageUrl(driveLink),
+                votes: parseInt(row['투표수']) || 0
+            };
+        }).filter(photo => photo.imageUrl && photo.imageUrl.trim()); // Only include photos with valid URLs
         
+        console.log('Loaded photos:', photos.length);
+        console.log('Photos data:', photos);
         document.getElementById('loading').style.display = 'none';
         renderGallery();
     } catch (error) {
@@ -47,25 +76,6 @@ async function loadPhotos() {
         document.getElementById('loading').innerHTML = 
             '<p>❌ 사진을 불러올 수 없습니다. 잠시 후 다시 시도해주세요.</p>';
     }
-}
-
-// Extract Google Drive image URL
-function extractGoogleDriveImageUrl(driveUrl) {
-    if (!driveUrl) return '';
-    
-    // Extract file ID from various Google Drive URL formats
-    let fileId = '';
-    
-    if (driveUrl.includes('/d/')) {
-        fileId = driveUrl.split('/d/')[1].split('/')[0];
-    } else if (driveUrl.includes('id=')) {
-        fileId = driveUrl.split('id=')[1].split('&')[0];
-    }
-    
-    if (fileId) {
-        return `https://lh3.googleusercontent.com/d/${fileId}=w400-h400`;
-    }
-    return driveUrl;
 }
 
 // Render gallery
@@ -83,37 +93,13 @@ function renderGallery() {
     }
     
     filtered.forEach(photo => {
-        const imageUrl = extractGoogleDriveImageUrl(photo.imageUrl);
         const card = document.createElement('div');
         card.className = 'photo-card';
         card.innerHTML = `
-            <img src="${imageUrl}" alt="${photo.title}" class="photo-image" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23ddd%22 width=%22400%22 height=%22300%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 font-size=%2224%22 fill=%22%23999%22 text-anchor=%22middle%22 dy=%22.3em%22%3E이미지를 불러올 수 없습니다%3C/text%3E%3C/svg%3E'">
-            <div class="photo-info">
-                <span class="photo-category">${photo.category}</span>
-                <h3 class="photo-title">${photo.title}</h3>
-                <div class="photo-details">
-                    <span class="photo-detail-label">작가:</span> ${photo.photographer}
-                </div>
-                <div class="photo-details">
-                    <span class="photo-detail-label">부서:</span> ${photo.department}
-                </div>
-                <div class="photo-details">
-                    <span class="photo-detail-label">촬영:</span> ${photo.shotDate} / ${photo.location}
-                </div>
-                <div class="photo-description">${photo.description}</div>
-                <div class="photo-votes">
-                    <span class="vote-count">❤️ ${photo.votes}</span>
-                </div>
-            </div>
-        `;
+            <img src="${photo.imageUrl}" alt="${photo.title}" class="photo-image" loading="lazy" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23ddd%22 width=%22400%22 height=%22300%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 font-size=%2224%22 fill=%22%23999%22 text-anchor=%22middle%22 dy=%22.3em%22%3E이미지를 불러올 수 없습니다%3C/text%3E%3C/svg%3E'\">\n            <div class="photo-info">\n                <span class="photo-category">${photo.category}</span>\n                <h3 class="photo-title">${photo.title}</h3>\n                <div class="photo-details">\n                    <span class="photo-detail-label">작가:</span> ${photo.photographer}\n                </div>\n                <div class="photo-details">\n                    <span class="photo-detail-label">부서:</span> ${photo.department}\n                </div>\n                <div class="photo-details">\n                    <span class="photo-detail-label">촬영:</span> ${photo.shotDate} / ${photo.location}\n                </div>\n                <div class="photo-description">${photo.description}</div>\n                <div class="photo-votes">\n                    <span class="vote-count">❤️ ${photo.votes}</span>\n                </div>\n            </div>\n        `;
         
         card.addEventListener('click', () => {
-            openModal(imageUrl, `
-                <strong>${photo.title}</strong><br>
-                작가: ${photo.photographer} (${photo.department})<br>
-                촬영: ${photo.shotDate} / ${photo.location}<br>
-                "${photo.description}"
-            `);
+            openModal(photo.imageUrl, `\n                <strong>${photo.title}</strong><br>\n                작가: ${photo.photographer} (${photo.department})<br>\n                촬영: ${photo.shotDate} / ${photo.location}<br>\n                \"${photo.description}\"\n            `);
         });
         
         gallery.appendChild(card);
@@ -249,5 +235,6 @@ document.querySelectorAll('a[href^="#"]').forEach(anchor => {
 // Add to window for debugging
 window.appDebug = {
     photos: () => console.log(photos),
-    messages: () => console.log(messages)
+    messages: () => console.log(messages),
+    config: () => console.log(CONFIG)
 };
