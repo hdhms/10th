@@ -1,7 +1,7 @@
 // Configuration
 const CONFIG = {
     SPREADSHEET_ID: '1lSXWtgNW6tttziaQ9GYgRVRotO1Xpha-RvFS27hQu_E',
-    VOTING_FORM_URL: 'https://forms.gle/YOUR_VOTING_FORM_ID', // Update with your Google Form
+    VOTING_FORM_URL: 'https://forms.gle/YOUR_VOTING_FORM_ID',
     STORAGE_KEY: 'hms_messages'
 };
 
@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Extract file ID from various Google Drive URL formats
 function extractFileId(url) {
-    if (!url) return null;
+    if (!url || typeof url !== 'string') return null;
     
     // Format: https://drive.google.com/file/d/FILE_ID/view
     if (url.includes('/d/')) {
@@ -38,7 +38,7 @@ function extractFileId(url) {
 // Convert Google Drive link to direct image URL
 function getGoogleDriveImageUrl(driveUrl) {
     const fileId = extractFileId(driveUrl);
-    if (fileId) {
+    if (fileId && fileId.length > 0) {
         return `https://drive.google.com/uc?id=${fileId}&export=view`;
     }
     return driveUrl;
@@ -47,12 +47,30 @@ function getGoogleDriveImageUrl(driveUrl) {
 // Load photos from Google Sheets
 async function loadPhotos() {
     try {
+        console.log('Starting to load photos...');
         const url = `https://opensheet.elk.sh/${CONFIG.SPREADSHEET_ID}/Sheet1`;
-        const response = await fetch(url);
-        const data = await response.json();
+        console.log('Fetching from:', url);
         
-        photos = data.map(row => {
+        const response = await fetch(url);
+        console.log('Response status:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log('Raw data from API:', data);
+        console.log('Data length:', data.length);
+        
+        if (!data || data.length === 0) {
+            throw new Error('No data received from API');
+        }
+        
+        photos = data.map((row, index) => {
+            console.log(`Processing row ${index}:`, row);
             const driveLink = row['구글드라이브링크'] || '';
+            const imageUrl = getGoogleDriveImageUrl(driveLink);
+            
             return {
                 id: row['고유ID'] || Math.random().toString(36).substr(2, 9),
                 category: row['카테고리'] || '',
@@ -62,19 +80,33 @@ async function loadPhotos() {
                 shotDate: row['촬영시기'] || '',
                 location: row['촬영장소'] || '',
                 description: row['한줄소개'] || '',
-                imageUrl: getGoogleDriveImageUrl(driveLink),
-                votes: parseInt(row['투표수']) || 0
+                imageUrl: imageUrl,
+                votes: parseInt(row['투표수']) || 0,
+                originalLink: driveLink
             };
-        }).filter(photo => photo.imageUrl && photo.imageUrl.trim()); // Only include photos with valid URLs
+        }).filter(photo => photo.imageUrl && photo.imageUrl.trim() && photo.imageUrl !== '');
         
-        console.log('Loaded photos:', photos.length);
-        console.log('Photos data:', photos);
-        document.getElementById('loading').style.display = 'none';
-        renderGallery();
+        console.log('Processed photos:', photos);
+        console.log('Photos count:', photos.length);
+        
+        if (photos.length === 0) {
+            console.warn('No valid photos found after filtering');
+            document.getElementById('loading').innerHTML = 
+                '<p>⚠️ 유효한 사진이 없습니다. 스프레드시트를 확인해주세요.</p>';
+        } else {
+            document.getElementById('loading').style.display = 'none';
+            renderGallery();
+        }
     } catch (error) {
         console.error('Error loading photos:', error);
-        document.getElementById('loading').innerHTML = 
-            '<p>❌ 사진을 불러올 수 없습니다. 잠시 후 다시 시도해주세요.</p>';
+        console.error('Error details:', error.message);
+        console.error('Error stack:', error.stack);
+        
+        document.getElementById('loading').innerHTML = `
+            <p>❌ 사진을 불러올 수 없습니다.</p>
+            <p style="font-size: 0.9rem; color: #666;">오류: ${error.message}</p>
+            <p style="font-size: 0.8rem; color: #999;">콘솔을 확인하고 관리자에게 문의하세요.</p>
+        `;
     }
 }
 
@@ -87,19 +119,27 @@ function renderGallery() {
         ? photos 
         : photos.filter(p => p.category === currentCategory);
     
+    console.log('Rendering gallery with filtered photos:', filtered.length);
+    
     if (filtered.length === 0) {
         gallery.innerHTML = '<p style="grid-column: 1/-1; text-align: center; padding: 2rem; color: #999;">이 카테고리에는 사진이 없습니다.</p>';
         return;
     }
     
-    filtered.forEach(photo => {
+    filtered.forEach((photo, idx) => {
+        console.log(`Rendering photo ${idx}:`, photo);
         const card = document.createElement('div');
         card.className = 'photo-card';
         card.innerHTML = `
-            <img src="${photo.imageUrl}" alt="${photo.title}" class="photo-image" loading="lazy" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23ddd%22 width=%22400%22 height=%22300%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 font-size=%2224%22 fill=%22%23999%22 text-anchor=%22middle%22 dy=%22.3em%22%3E이미지를 불러올 수 없습니다%3C/text%3E%3C/svg%3E'\">\n            <div class="photo-info">\n                <span class="photo-category">${photo.category}</span>\n                <h3 class="photo-title">${photo.title}</h3>\n                <div class="photo-details">\n                    <span class="photo-detail-label">작가:</span> ${photo.photographer}\n                </div>\n                <div class="photo-details">\n                    <span class="photo-detail-label">부서:</span> ${photo.department}\n                </div>\n                <div class="photo-details">\n                    <span class="photo-detail-label">촬영:</span> ${photo.shotDate} / ${photo.location}\n                </div>\n                <div class="photo-description">${photo.description}</div>\n                <div class="photo-votes">\n                    <span class="vote-count">❤️ ${photo.votes}</span>\n                </div>\n            </div>\n        `;
+            <img src="${photo.imageUrl}" alt="${photo.title}" class="photo-image" loading="lazy" onerror="console.error('Image failed to load:', '${photo.imageUrl}'); this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22%3E%3Crect fill=%22%23ddd%22 width=%22400%22 height=%22300%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 font-size=%2224%22 fill=%22%23999%22 text-anchor=%22middle%22 dy=%22.3em%22%3E이미지를 불러올 수 없습니다%3C/text%3E%3C/svg%3E'\">\n            <div class="photo-info">\n                <span class="photo-category">${photo.category}</span>\n                <h3 class="photo-title">${photo.title}</h3>\n                <div class="photo-details">\n                    <span class="photo-detail-label">작가:</span> ${photo.photographer}\n                </div>\n                <div class="photo-details">\n                    <span class="photo-detail-label">부서:</span> ${photo.department}\n                </div>\n                <div class="photo-details">\n                    <span class="photo-detail-label">촬영:</span> ${photo.shotDate} / ${photo.location}\n                </div>\n                <div class="photo-description">${photo.description}</div>\n                <div class="photo-votes">\n                    <span class="vote-count">❤️ ${photo.votes}</span>\n                </div>\n            </div>\n        `;
         
         card.addEventListener('click', () => {
-            openModal(photo.imageUrl, `\n                <strong>${photo.title}</strong><br>\n                작가: ${photo.photographer} (${photo.department})<br>\n                촬영: ${photo.shotDate} / ${photo.location}<br>\n                \"${photo.description}\"\n            `);
+            openModal(photo.imageUrl, `
+                <strong>${photo.title}</strong><br>
+                작가: ${photo.photographer} (${photo.department})<br>
+                촬영: ${photo.shotDate} / ${photo.location}<br>
+                "${photo.description}"
+            `);
         });
         
         gallery.appendChild(card);
@@ -182,7 +222,7 @@ function setupMessageForm() {
 }
 
 function saveMessages() {
-    localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(messages.slice(0, 100))); // Keep last 100
+    localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(messages.slice(0, 100)));
 }
 
 function loadMessages() {
@@ -213,7 +253,6 @@ function renderMessages() {
 
 // Voting Section
 function setupVotingSection() {
-    // Generate QR code using qr-server.com
     const votingUrl = CONFIG.VOTING_FORM_URL;
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(votingUrl)}`;
     
@@ -234,7 +273,22 @@ document.querySelectorAll('a[href^="#"]').forEach(anchor => {
 
 // Add to window for debugging
 window.appDebug = {
-    photos: () => console.log(photos),
-    messages: () => console.log(messages),
-    config: () => console.log(CONFIG)
+    photos: () => {
+        console.log('===== PHOTOS DEBUG =====');
+        console.log('Total photos:', photos.length);
+        console.log('All photos:', photos);
+        photos.forEach((p, i) => {
+            console.log(`Photo ${i}:`, p.title, '|', p.imageUrl);
+        });
+    },
+    messages: () => console.log('Messages:', messages),
+    config: () => console.log('Config:', CONFIG),
+    testImage: (index) => {
+        if (photos[index]) {
+            console.log('Testing image URL:', photos[index].imageUrl);
+            window.open(photos[index].imageUrl, '_blank');
+        }
+    }
 };
+
+console.log('App initialized. Use appDebug.photos() to check photos.');
